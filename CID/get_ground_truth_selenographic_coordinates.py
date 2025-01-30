@@ -9,7 +9,7 @@ def process_files(input_dir, catalog_file, output_dir):
 
     # Load the catalog into a pandas DataFrame
     catalog_columns = [
-        "id", "X", "Y", "Z", "a_dia_metres", "b_dia_metres", "angle(degree)"
+        "id", "X", "Y", "Z", "a_dia_metres", "b_dia_metres", "angle(rad)"
     ]
     # catalog = pd.read_csv(catalog_file, names=catalog_columns)
     catalog = pd.read_csv(catalog_file, names=catalog_columns, skiprows=1, dtype={"id": str})
@@ -34,20 +34,18 @@ def process_files(input_dir, catalog_file, output_dir):
             # Merge the data with the catalog on the 'id' column
             merged = data.merge(catalog, left_on="id", right_on="id", how="inner")
 
-
-            merged["angle(degree)"] = np.radians(merged["angle(degree)"])
-            merged["a_dia_metres"] = (merged["a_dia_metres"])*1000/2
-            merged["b_dia_metres"] = (merged["b_dia_metres"])*1000/2
+            merged["a_dia_km"] = (merged["a_dia_km"])*1000/2
+            merged["b_dia_km"] = (merged["b_dia_km"])*1000/2
    
 
             # Create the output structure
             output_data = merged[[
-                "X", "Y", "Z", "a_dia_metres", "b_dia_metres", "angle(degree)", "id"
+                "X", "Y", "Z", "a_dia_km", "b_dia_km", "angle(rad)", "id"
             ]]
 
             # Rename columns to match the required output format
             output_data.columns = [
-                "X", "Y", "Z", "a_metres", "b_metres", "theta", "id"
+                "X", "Y", "Z", "a_dia_km", "b_dia_km", "theta", "id"
             ]
 
             # Save to the output file
