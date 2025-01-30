@@ -14,6 +14,8 @@ cbpe_dir="sofia@10.18.224.95:~/Documents/crater_based_navigation_pipeline/CBPE/"
 files=("${cbpe_dir}main.py" "${cbpe_dir}runme.sh" "${cbpe_dir}src")
 rsync -av "${files[@]}" CBPE/
 
+rsync -av sofia@10.18.224.95:~/Documents/crater_based_navigation_pipeline/data/convert_catalogue_to_selenographic_coordinates.py data/
+
 git add .
 
 git commit -m "Updating cbn pipeline on github"
