@@ -1140,6 +1140,8 @@ if __name__ == "__main__":
         CW_params, CW_conic, CW_conic_inv, CW_ENU, CW_Hmi_k, ID, CW_L_prime = CW_params_full[CW_visable_crater_mask], CW_conic_full[CW_visable_crater_mask], CW_conic_inv_full[CW_visable_crater_mask], CW_ENU_full[CW_visable_crater_mask], CW_Hmi_k_full[CW_visable_crater_mask], ID_full[CW_visable_crater_mask], CW_L_prime_full[CW_visable_crater_mask]
 
         curr_craters_id = np.array(craters_indices[i])
+
+        print("Missing ids from cat.:",np.setdiff1d(craters_indices[i], ID, assume_unique=True))
         
         CC_params = np.zeros([len(curr_img_params), 5])
         CC_a = np.zeros([len(curr_img_params)])
