@@ -2,8 +2,10 @@ import copy
 import csv
 import numpy as np
 
+from src.ck_bnb import * #IMPORTANT: KEEP THIS ABOVE THE OTHER SOURCE FILES AS SOME FUNCTIONS WILL BE OVERWRITTEN.
 from src.get_data import *
 from src.utils import *
+
 
 from scipy.linalg import eig
 
@@ -29,6 +31,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 import numpy as np
 import os
+
+
 
 
 
@@ -250,20 +254,132 @@ def p1e_solver(CW_params, CW_ENU, Rw_c, CC_params, K, craters_id):
     return E_w_est, E_w_flip_est
 
 
-def read_crater_database(craters_database_text_dir):
+def db_id_mask_with_errors(CW_params, K, pos_est, att_est, pos_err, att_err_deg, num_samples=10):
+    img_w, img_h = K[0, 2] * 2, K[1, 2] * 2  # Assuming the principal point is at (w/2, h/2)
+    neighbouring_craters_id = np.arange(CW_params.shape[0])
+    combined_mask = np.zeros(len(neighbouring_craters_id), dtype=bool)
+    
+    for _ in range(num_samples):
+        # Sample position error within bounds
+        pos_perturbation = pos_err * (2 * np.random.rand(3) - 1)  # Uniform perturbation
+        perturbed_pos = pos_est + pos_perturbation
+        
+        # Sample attitude error within bounds
+        att_perturbation = R.from_euler('xyz', att_err_deg * (2 * np.random.rand(3) - 1), degrees=True).as_matrix()
+        perturbed_att = att_perturbation @ att_est
+        
+        # Compute projection matrix
+        extrinsic = np.zeros((3, 4))
+        extrinsic[0:3, 0:3] = perturbed_att
+        extrinsic[:, 3] = perturbed_att @ -perturbed_pos
+        P_mc = K @ extrinsic
+        
+        # Project 3D points onto the image plane
+        projected_3D_points = P_mc @ np.hstack([CW_params[:, 0:3], np.ones((len(neighbouring_craters_id), 1))]).T
+        points_on_img_plane = np.array([
+            projected_3D_points[0, :] / projected_3D_points[2, :],
+            projected_3D_points[1, :] / projected_3D_points[2, :]
+        ])
+        
+        within_img_valid_indices = np.where((points_on_img_plane[0, :] >= 0) &
+                                            (points_on_img_plane[0, :] <= img_w) &
+                                            (points_on_img_plane[1, :] >= 0) &
+                                            (points_on_img_plane[1, :] <= img_h) &
+                                            ~np.isnan(points_on_img_plane[0, :]) &
+                                            ~np.isnan(points_on_img_plane[1, :]))[0]
+        
+        fil_ncid = neighbouring_craters_id[within_img_valid_indices]
+        cam_pos = -extrinsic[0:3, 0:3].T @ extrinsic[0:3, 3]
+        
+        # Check if craters are visible on the sphere
+        _, fil_ncid = visible_points_on_sphere(CW_params[:, 0:3], np.array([0, 0, 0]),
+                                               np.linalg.norm(CW_params[0, 0:3]),
+                                               cam_pos, fil_ncid)
+        
+        # Update mask
+        combined_mask |= np.isin(neighbouring_craters_id, fil_ncid)
+    
+    return combined_mask
+
+
+
+def db_id_mask(CW_params, K, pos_est, att_est):
+    extrinsic = np.zeros((3,4))
+    
+    extrinsic[0:3,0:3] = att_est
+    extrinsic[:,3] = att_est @ -pos_est
+    P_mc = K @ extrinsic
+
+    #  Only process the rest if the pre-screen test is passed
+    neighbouring_craters_id = np.arange(CW_params.shape[0])
+
+    # 1) project all 3D points onto the image plane
+    projected_3D_points = P_mc @ np.hstack(
+        [CW_params[neighbouring_craters_id, 0:3], np.ones((len(neighbouring_craters_id), 1))]).T
+    points_on_img_plane = np.array([projected_3D_points[0, :] / projected_3D_points[2, :],
+                                    projected_3D_points[1, :] / projected_3D_points[2, :]])
+
+    within_img_valid_indices = np.where((points_on_img_plane[0, :] >= 0) &
+                                        (points_on_img_plane[0, :] <= img_w) &
+                                        (points_on_img_plane[1, :] >= 0) &
+                                        (points_on_img_plane[1, :] <= img_h) &
+                                        ~np.isnan(points_on_img_plane[0, :]) &
+                                        ~np.isnan(points_on_img_plane[1, :]))[0]
+
+    fil_ncid = neighbouring_craters_id[within_img_valid_indices]
+
+    cam_pos = -extrinsic[0:3, 0:3].T @ extrinsic[0:3, 3]
+
+    # check if the crater is visible to the camera
+    _, fil_ncid = visible_points_on_sphere(CW_params[:, 0:3], np.array([0, 0, 0]),
+                                           np.linalg.norm(CW_params[0, 0:3]),
+                                           cam_pos, fil_ncid)
+    
+    mask = np.isin(neighbouring_craters_id, fil_ncid)
+    return mask
+
+# def read_crater_database(craters_database_text_dir):
+#     with open(craters_database_text_dir, "r") as f:
+#         lines = f.readlines()[1:]  # ignore the first line
+#     lines = [(re.split(r',\s*', i)) for i in lines]
+#     lines = np.array(lines)
+
+#     ID = lines[:, 0]
+#     lines = np.float64(lines[:, 1:])
+
+#     db_CW_params, db_CW_conic, db_CW_conic_inv, db_CW_ENU, db_CW_Hmi_k, db_L_prime = get_craters_world(lines)
+#     crater_center_point_tree = cKDTree(db_CW_params[:, 0:3])
+#     return db_CW_params, db_CW_conic, db_CW_conic_inv, db_CW_ENU, db_CW_Hmi_k, ID, crater_center_point_tree, db_L_prime
+    
+
+def read_crater_database(craters_database_text_dir, cached_filename, overwrite_catalogue=False):
+    if os.path.exists(cached_filename) and not overwrite_catalogue:  # Load from cache if available
+        data = np.load(cached_filename, allow_pickle=True)
+        return (data['db_CW_params'], data['db_CW_conic'], data['db_CW_conic_inv'], 
+                data['db_CW_ENU'], data['db_CW_Hmi_k'], data['ID'], 
+                cKDTree(data['db_CW_params'][:, 0:3]), data['db_L_prime'])
+
     with open(craters_database_text_dir, "r") as f:
-        lines = f.readlines()[1:]  # ignore the first line
-    lines = [i.split(',') for i in lines]
-    lines = np.array(lines)
+        lines = f.readlines()[1:]  # Ignore the first line
+    lines = [re.split(r',\s*', i.strip()) for i in lines]
+    lines = np.array(lines, dtype=object)  # Use dtype=object to preserve strings
 
     ID = lines[:, 0]
-    lines = np.float64(lines[:, 1:])
+    lines = np.array(lines[:, 1:], dtype=np.float64)  # Convert numerical data
 
     db_CW_params, db_CW_conic, db_CW_conic_inv, db_CW_ENU, db_CW_Hmi_k, db_L_prime = get_craters_world(lines)
+    # Save to cache
+    np.savez_compressed(cached_filename, 
+                        db_CW_params=db_CW_params, 
+                        db_CW_conic=db_CW_conic, 
+                        db_CW_conic_inv=db_CW_conic_inv, 
+                        db_CW_ENU=db_CW_ENU, 
+                        db_CW_Hmi_k=db_CW_Hmi_k, 
+                        ID=ID, 
+                        db_L_prime=db_L_prime)
+
     crater_center_point_tree = cKDTree(db_CW_params[:, 0:3])
     return db_CW_params, db_CW_conic, db_CW_conic_inv, db_CW_ENU, db_CW_Hmi_k, ID, crater_center_point_tree, db_L_prime
-    
-    
     
 
 def strip_symbols(s, symbols):
@@ -337,8 +453,7 @@ def get_imaged_craters(data_dir,sorted_crater_cam_filenames, degrees = False, co
         all_crater_ids.append(crater_ids[confidence_mask])
     return all_detected_craters, all_crater_ids
 
-
-def get_imaged_craters_filter_id(data_dir,sorted_crater_cam_filenames, degrees, confidence_threshold, ID):
+def get_imaged_craters_filter_id(data_dir,sorted_crater_cam_filenames, degrees, confidence_threshold, ID=None):
     all_detected_craters = []
     all_crater_ids = []
     for file_name in sorted_crater_cam_filenames:
@@ -359,16 +474,19 @@ def get_imaged_craters_filter_id(data_dir,sorted_crater_cam_filenames, degrees, 
         semi_major_axis_mask = np.array(semi_major_axis > 0, dtype=bool)
         semi_minor_axis_mask = np.array(semi_minor_axis > 0, dtype=bool)
         axis_mask = semi_major_axis_mask & semi_minor_axis_mask
-
-
+ 
         confidence_mask = np.array(crater_dection_confidence >= confidence_threshold, dtype=bool)
 
-        id_mask = np.isin(crater_ids, ID) #TODO: we might want to change this
+        id_mask = np.ones(len(crater_ids), dtype=bool)
 
-        # Combined mask
+        if ID is not None:
+            ID_set = set(ID)  # Convert to a set (fast lookup)
+            id_mask = np.array([crater_id in ID_set for crater_id in crater_ids])
+            # id_mask = np.isin(crater_ids, ID) #TODO: we might want to change this
         combined_mask = confidence_mask & id_mask & axis_mask
 
         imaged_craters = imaged_craters[combined_mask]
+
         imaged_craters = [np.array(i) for i in imaged_craters]
 
         all_detected_craters.append(imaged_craters)
@@ -618,7 +736,7 @@ def display_projected_ellipses(CC_params, CW_ids, CW_conic_inv, CW_Hmi_k, K, opt
 def main_func(db_cw_id, CW_params, CW_ENU, CW_L_prime, Rw_c, CC_params, K, cc_id, gt_att,
               CW_conic_inv, CW_Hmi_k,
               px_thres, ab_thres, deg_thres,
-              eld_thres, img_w, img_h, gt_id=None):
+              eld_thres, img_w, img_h):
 
     opt_num_matches = 0
     opt_cam_pos = np.array([0, 0, 0])
@@ -898,10 +1016,31 @@ def visible_points_on_sphere(points, sphere_center, sphere_radius, camera_positi
 
 import argparse
 
+def db_id_mask_from_sphere(CW_params, K, pos_est, att_est, pos_err, att_err):
+    cam_view_vec = att_est[2, 0:3]
+    # cam_view_vec = att_est[0:3, 2]
+    moon_radius = 1737.4 * 1000
+    
+    f = K[0,0]
+    c = K[0,2]
+    max_img_ang = np.arctan((math.sqrt(c**2+c**2))/f)
+    print("cam_view_vec",cam_view_vec)
+    print("pos_est",pos_est)
+    sphere_centre, sphere_radius, _ = bound_computation_sph_cylinder_inter_numba(cam_view_vec, K, att_est, pos_est, pos_err, att_err+max_img_ang, moon_radius)
+
+    print(sphere_centre, sphere_radius)
+    all_crater_coordinates = CW_params[:, 0:3]
+
+    # Get all craters that lie in the intersection sphere.
+    distances = np.linalg.norm(all_crater_coordinates-sphere_centre, axis = 1)
+    inner_sphere_mask = distances <= sphere_radius
+    return inner_sphere_mask
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Script to process data.")
     parser.add_argument("--data_dir", required=True, help="Directory path")
+    parser.add_argument("--detections_dir", required=True, help="Directory path")
     parser.add_argument("--gt_data_dir", required=True, help="Directory path")
     parser.add_argument("--crater_catalogue_file", required=True, help="Crater catalogue path")
     parser.add_argument("--calibration_file", required=True, help="Crater calibration path")
@@ -911,14 +1050,17 @@ if __name__ == "__main__":
     parser.add_argument("--lower_matched_percentage", required=True)
     parser.add_argument("--upper_matched_percentage", required=True)
     parser.add_argument("--write_dir", required=True)
+    parser.add_argument("--catalogue_dir", required=True)
     parser.add_argument("--write_position_dir",required=True)
     parser.add_argument("--attitude_noise_deg", required=True)
 
     args = parser.parse_args()
     data_dir = args.data_dir
+    detections_dir = args.detections_dir
     gt_data_dir = args.gt_data_dir
     result_dir = "result.txt"
     write_dir = args.write_dir
+    catalogue_dir = args.catalogue_dir
     write_position_dir = args.write_position_dir
     attitude_noise_deg = args.attitude_noise_deg
     
@@ -938,32 +1080,36 @@ if __name__ == "__main__":
     deg_thres=10 #10
     # lower_matched_percentage=0.2 #.2 0.5
     
-    starting_id = indx = 1807#1575
+    starting_id = indx = 0#1575
     ending_id = 2500
-    step = 1
+    step = 500
 
     num_cores=4 #TODO: change to 4
 
     # ### Read the craters database in raw form
     all_craters_database_text_dir = args.crater_catalogue_file
 
-    # Get world crater info.
-    CW_params, CW_conic, CW_conic_inv, CW_ENU, CW_Hmi_k, ID, crater_center_point_tree, CW_L_prime = \
-            read_crater_database(all_craters_database_text_dir)
+    # Store large db as npz.
+    cached_filename = catalogue_dir+"crater_catalogue.npz"
+    # Get world crater info of the full Moon.
+    print("Getting world craters.")
+    CW_params_full, CW_conic_full, CW_conic_inv_full, CW_ENU_full, CW_Hmi_k_full, ID_full, crater_center_point_tree_full, CW_L_prime_full = \
+            read_crater_database(all_craters_database_text_dir, cached_filename, overwrite_catalogue = True)
 
     # Get the camera extrinsic matrix and add noise.
     camera_extrinsic = get_extrinsic_from_flight_file(args.flight_file, args.not_pangu,attitude_noise_deg)
 
-    crater_cam_filenames = get_files_in_dir(os.path.abspath(data_dir),"txt")
+    crater_cam_filenames = get_files_in_dir(os.path.abspath(detections_dir),"txt")
     crater_cam_filenames.sort(key=lambda x: int(x[:-4]))
 
     crater_cam_filenames = crater_cam_filenames[:ending_id]#TODO: remove
 
-    imaged_params, craters_indices = get_imaged_craters_filter_id(args.data_dir, crater_cam_filenames, True, 0.7, ID) #TODO:  we need to remove the ID filtering
+    print("Getting imaged parameters.")
+    imaged_params, craters_indices = get_imaged_craters_filter_id(detections_dir, crater_cam_filenames, True, 0.7)#, ID=ID_full) #NOTE: remove ID to not filter out ids
 
 
     for i in range(starting_id, ending_id, step):
-        print("File: ",i)
+        print("Processing file: ",i)
 
         # plot_ellipses_with_ids(imaged_params[i], craters_indices[i], imaged_params_gt[i], craters_indices_gt[i])
 
@@ -979,7 +1125,22 @@ if __name__ == "__main__":
 
         start_time = time.time()  ###################### start time ####################################
 
+        # Generate a crater catalogue on the fly.
+        pos_est, att_est = gt_pos, gt_att #TODO: change this to a real estimate
+        pos_err = 6700
+        att_err = 0.01
+        
+
+        # Find the crater indicies of craters in the camera's fov
+        print("Getting local crater catalogue.")
+        CW_visable_crater_mask = db_id_mask_from_sphere(CW_params_full, K, pos_est, att_est, pos_err, att_err*np.pi/180)
+        # CW_visable_crater_mask = db_id_mask_with_errors(CW_params_full, K, pos_est, att_est, pos_err, att_err, 10)
+        print("Length of catalogue:",np.sum(CW_visable_crater_mask))
+        # print("monte:",np.sum(CW_visable_crater_mask))
+        CW_params, CW_conic, CW_conic_inv, CW_ENU, CW_Hmi_k, ID, CW_L_prime = CW_params_full[CW_visable_crater_mask], CW_conic_full[CW_visable_crater_mask], CW_conic_inv_full[CW_visable_crater_mask], CW_ENU_full[CW_visable_crater_mask], CW_Hmi_k_full[CW_visable_crater_mask], ID_full[CW_visable_crater_mask], CW_L_prime_full[CW_visable_crater_mask]
+
         curr_craters_id = np.array(craters_indices[i])
+        
         CC_params = np.zeros([len(curr_img_params), 5])
         CC_a = np.zeros([len(curr_img_params)])
         CC_b = np.zeros([len(curr_img_params)])
@@ -994,52 +1155,23 @@ if __name__ == "__main__":
             CC_params[j] = param
             CC_conics[j] = ellipse_to_conic_matrix(*param)
 
-        # sort CC_params based on size # bigger craters, better it is.
-        # sorted_indices = np.argsort(CC_params[:, 2])
-        # sorted_indices = sorted_indices[::-1]
-        # CC_params = CC_params[sorted_indices]
-
-        # CC_conics = CC_conics[sorted_indices]
-        # curr_craters_id = curr_craters_id[sorted_indices]
-
         Rw_c = gt_att.T
         # compute first Acam
 
         found_flag = False
 
-        catalogue_id_index = []
-        for k, idx in enumerate(craters_indices[i]):
-            catalogue_id_index.append(ID.tolist().index(idx))
+        # catalogue_id_index = []
+        # for k, idx in enumerate(craters_indices[i]):
+        #     catalogue_id_index.append(ID.tolist().index(idx))
 
-
-
-        # results = []
-        # for cc_id in range(CC_params.shape[0]):
-        #     print(cc_id)
-        #     result = main_func(catalogue_id_index[cc_id], CW_params, CW_ENU, CW_L_prime, Rw_c, CC_params, K, cc_id, gt_att,\
-        #             CW_conic_inv, CW_Hmi_k,\
-        #             px_thres, ab_thres, deg_thres,\
-        #             eld_thres, img_w, img_h)
-        #     results.append(result)
-            
-        
-        # opt_num_matches_vec = np.array([opt_num_matches[0] for opt_num_matches in results])
-        
-        # # if there is one that's larger than
-        # if (np.max(opt_num_matches_vec) > upper_matched_percentage * CC_params.shape[0]):
-        #     found_flag = True
-        #     opt_matched_ids = results[np.argmax(opt_num_matches_vec)][1]
-        #     opt_cam_pos = results[np.argmax(opt_num_matches_vec)][2]
-        #     opt_vec= results[np.argmax(opt_num_matches_vec)][3]
-
-
+        print("Matching ...")
         for cc_id in range(CC_params.shape[0]):
             results = Parallel(n_jobs=num_cores)(
                 delayed(main_func)(
                     db_cw_id, CW_params, CW_ENU, CW_L_prime, Rw_c, CC_params, K, cc_id, gt_att,
                     CW_conic_inv, CW_Hmi_k,
                     px_thres, ab_thres, deg_thres,
-                    eld_thres, img_w, img_h, gt_id=catalogue_id_index[cc_id]) for db_cw_id in range(CW_params.shape[0])
+                    eld_thres, img_w, img_h) for db_cw_id in range(CW_params.shape[0])
             )
             opt_num_matches_vec = [opt_num_matches[0] for opt_num_matches in results]
 
@@ -1062,27 +1194,26 @@ if __name__ == "__main__":
             # print(opt_vec)
         else:
             matched_ids = log_result(opt_matched_ids, curr_craters_id,result_dir, i)
-            # print(opt_vec)
-
-        # display_projected_ellipses(CC_params, ID, CW_conic_inv, CW_Hmi_k, K, opt_matched_ids, gt_att, opt_cam_pos)
 
 
-        if not os.path.exists(write_dir):
-            os.makedirs(write_dir)
-        with open(write_dir+str(i)+".txt", "w") as file:
-            file.write("ellipse: x_centre, y_centre, semi_major_axis, semi_minor_axis, rotation, id\n")
-            for index, matched_id in enumerate(matched_ids):
-                if matched_id != "None":
-                    x, y, a, b, theta = CC_params[index]
-                    ellipse_str = ", ".join(str(ellipse_param) for ellipse_param in CC_params[index])
-                    file.write(ellipse_str+", "+matched_id+"\n")
-            file.close()
 
-        if not os.path.exists(write_position_dir):
-            os.makedirs(write_position_dir)
-        with open(write_position_dir+str(i)+".txt", "w") as f:
-            f.write(str(opt_cam_pos[0])+", "+str(opt_cam_pos[1])+", "+str(opt_cam_pos[2])+"\n")
-            # f.close()
+        # TODO: uncomment
+        # if not os.path.exists(write_dir):
+        #     os.makedirs(write_dir)
+        # with open(write_dir+str(i)+".txt", "w") as file:
+        #     file.write("ellipse: x_centre, y_centre, semi_major_axis, semi_minor_axis, rotation, id\n")
+        #     for index, matched_id in enumerate(matched_ids):
+        #         if matched_id != "None":
+        #             x, y, a, b, theta = CC_params[index]
+        #             ellipse_str = ", ".join(str(ellipse_param) for ellipse_param in CC_params[index])
+        #             file.write(ellipse_str+", "+matched_id+"\n")
+        #     file.close()
+
+        # if not os.path.exists(write_position_dir):
+        #     os.makedirs(write_position_dir)
+        # with open(write_position_dir+str(i)+".txt", "w") as f:
+        #     f.write(str(opt_cam_pos[0])+", "+str(opt_cam_pos[1])+", "+str(opt_cam_pos[2])+"\n")
+        #     # f.close()
 
 
 

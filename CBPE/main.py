@@ -290,7 +290,7 @@ def main():
                     ### Image data restrictions ###
                     # Looping through all images.
                     loop_range = [0, len(ground_truth_poses)]
-                    loop_range = [0,1500]
+                    # loop_range = [0,100]
                     # loop_range = [0, 10]#len(ground_truth_poses)]
                     step = 1
                     # Limit dataset by number of images per deg. off nadir.

@@ -12,9 +12,7 @@ class Crater_w:
         self.Y = (Y)
         self.Z = (Z)
         self.a = a
-        self.b = a
-        # self.b = b
-        self.phi = 0
+        self.b = b
         self.phi = phi
         self.id = id.rstrip().lstrip()
         self.is_pangu = is_pangu
