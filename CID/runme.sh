@@ -18,7 +18,11 @@ upper_matched_percentage="0.3"
 write_position_dir="cid_estimated_position/"
 attitude_noise_deg="0.01"
 
-python3 cid_pecan.py --data_dir $dir$dem --catalogue_dir $dir --detections_dir $dir$dem$crater_detections_dir --write_dir $dir$dem$write_dir --gt_data_dir $dir$dem$gt_crater_detections_dir --crater_catalogue_file $dir$crater_catalogue --calibration_file $dir$dem$calibration_file --flight_file $dir$dem$flight_file --lower_matched_percentage $lower_matched_percentage --upper_matched_percentage $upper_matched_percentage --write_position_dir $dir$dem$write_position_dir --attitude_noise_deg $attitude_noise_deg
+RARR_positions="simulated_RARR_positions.txt"
+pos_err="6700"
+python generate_RARR_position_estimates.py $dir$dem$flight_file $dir$dem$RARR_positions $pos_err
+
+python3 cid_pecan.py --data_dir $dir$dem --catalogue_dir $dir --detections_dir $dir$dem$crater_detections_dir --write_dir $dir$dem$write_dir --gt_data_dir $dir$dem$gt_crater_detections_dir --crater_catalogue_file $dir$crater_catalogue --calibration_file $dir$dem$calibration_file --flight_file $dir$dem$flight_file --sim_RARR_pos $dir$dem$RARR_positions --lower_matched_percentage $lower_matched_percentage --upper_matched_percentage $upper_matched_percentage --write_position_dir $dir$dem$write_position_dir --attitude_noise_deg $attitude_noise_deg
 
 
 

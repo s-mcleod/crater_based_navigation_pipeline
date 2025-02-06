@@ -6,7 +6,7 @@ rsync -av "${files[@]}" CDA/
 
 # Copy CID
 cid_dir="sofia@10.18.224.95:~/Documents/crater_based_navigation_pipeline/CID/"
-files=("${cid_dir}cid_analysis.py" "${cid_dir}cid_pecan.py" "${cid_dir}get_ground_truth_selenographic_coordinates.py" "${cid_dir}runme_cid_analysis.sh" "${cid_dir}runme.sh" "${cid_dir}src" "${cid_dir}temp_process_data.py")
+files=("${cid_dir}cid_analysis.py" "${cid_dir}cid_pecan.py" "${cid_dir}get_ground_truth_selenographic_coordinates.py" "${cid_dir}runme_cid_analysis.sh" "${cid_dir}runme.sh" "${cid_dir}src" "${cid_dir}temp_process_data.py" "${cid_dir}generate_RARR_position_estimates.py")
 rsync -av "${files[@]}" CID/
 
 # Copy CBPE

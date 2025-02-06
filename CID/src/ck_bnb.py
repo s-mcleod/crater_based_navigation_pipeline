@@ -2193,7 +2193,6 @@ def uncertainty_sphere_determination(tc_cam_in_world, x_bar, rot_axis, delta_rot
     # R_kbartoz_nb = get_rotation_matrix_axis_angle_numba(k_bar, np.array([0, 0, -1], dtype=np.float64))
     # then rotate kbar and t
     R_t = R_kbartoz @ tc_cam_in_world
-    print("R-t",R_t)
     # R_t_nb = R_kbartoz_nb @ tc_cam_in_world
 
     # print(np.linalg.norm(R_t - R_t_nb))
@@ -2260,14 +2259,19 @@ def uncertainty_sphere_determination_numba(tc_cam_in_world, x_bar, rot_axis, del
     a_bar = a / np.linalg.norm(a)
     R_abartox = get_rotation_matrix_axis_angle_numba(a_bar, np.array([-1, 0, 0], dtype=np.float64))
     R_a = R_abartox @ a
+    print("a",a)
+    print("R_a",R_a)
 
     # then compute the extreme points
     if (np.linalg.norm(R_a) - delta_t > moon_radius ):
-        print("*******************")
+        print("*********No intersection**********")
         mid_pt = R_a/np.linalg.norm(R_a) * moon_radius
+        # mid_pt = mid_pt + mid_pt
     else:
         extreme_points = extreme_point_determination_numba(moon_radius, np.linalg.norm(R_a), delta_t)
         extreme_points = extreme_points + R_a
+        # extreme_points = extreme_points 
+        print("extreme points\n",extreme_points)
 
         # extreme_points_nb = extreme_point_determination_numba(moon_radius, np.linalg.norm(R_a), delta_t)
         # extreme_points_nb = extreme_points_nb + R_a
@@ -2281,6 +2285,8 @@ def uncertainty_sphere_determination_numba(tc_cam_in_world, x_bar, rot_axis, del
         # mid_pt, radius = enclosing_ball_determination(extreme_points)
         mid_pt, radius = enclosing_ball_determination_numba(extreme_points)
 
+    print("unrotated_mid_pt",mid_pt)
+
     # print(np.linalg.norm(mid_pt - mid_pt_nb))
     # print(radius - radius_nb)
     
@@ -2288,7 +2294,7 @@ def uncertainty_sphere_determination_numba(tc_cam_in_world, x_bar, rot_axis, del
     R_all_inv = R_kbartoz.T @ R_abartox.T
     rotated_mid_pt = R_all_inv @ mid_pt
     
-    return rotated_mid_pt, radius
+    return rotated_mid_pt, radius, mid_pt
 
 def bound_computation_sph_cylinder_inter(curr_los_mcs, K, Rc_cam_in_world, tc_cam_in_world, delta_t, delta_rot, moon_radius):
     # determine k_bar
@@ -2334,13 +2340,26 @@ def bound_computation_sph_cylinder_inter_numba(curr_los_mcs, K, Rc_cam_in_world,
     
     ######## cylinder 1 #####
     # mid_pt_1, r1 = uncertainty_sphere_determination(tc_cam_in_world, curr_los_mcs, rot_axis, delta_rot, delta_t, moon_radius)
-    mid_pt_1, r1 = uncertainty_sphere_determination_numba(tc_cam_in_world, curr_los_mcs, rot_axis, delta_rot, delta_t, moon_radius)
+    mid_pt_1, r1, un_mid_pt_1 = uncertainty_sphere_determination_numba(tc_cam_in_world, curr_los_mcs, rot_axis, delta_rot, delta_t, moon_radius)
+    print("mid_pt_1, r1",mid_pt_1, r1)
 
     # print(np.linalg.norm(mid_pt_1_nb - mid_pt_1))
     # print(r1 - r1_nb)
 
     # mid_pt_2, r2 = uncertainty_sphere_determination(tc_cam_in_world, curr_los_mcs, rot_axis, -delta_rot, delta_t, moon_radius)
-    mid_pt_2, r2 = uncertainty_sphere_determination_numba(tc_cam_in_world, curr_los_mcs, rot_axis, -delta_rot, delta_t, moon_radius)
+    mid_pt_2, r2, un_mid_pt_2 = uncertainty_sphere_determination_numba(tc_cam_in_world, curr_los_mcs, rot_axis, -delta_rot, delta_t, moon_radius)
+    print("mid_pt_2, r2",mid_pt_2, r2)
+
+    um1 = un_mid_pt_1/np.linalg.norm(un_mid_pt_1)
+    um2 = un_mid_pt_2/np.linalg.norm(un_mid_pt_2)
+    ang_dist_unrot = np.arccos(np.dot(um1, um2))
+    print("ang_dist_unrot",ang_dist_unrot)
+
+    m1 = mid_pt_1/np.linalg.norm(mid_pt_1)
+    m2 = mid_pt_2/np.linalg.norm(mid_pt_2)
+    ang_dist_rot = np.arccos(np.dot(m1, m2))
+    print("ang_dist_rot",ang_dist_rot)
+    print("dist",(ang_dist_unrot-ang_dist_rot))
 
     # print(np.linalg.norm(mid_pt_2_nb - mid_pt_2))
     # print(r2 - r2_nb)

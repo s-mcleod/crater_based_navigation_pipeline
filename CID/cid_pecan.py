@@ -493,6 +493,16 @@ def get_imaged_craters_filter_id(data_dir,sorted_crater_cam_filenames, degrees, 
         all_crater_ids.append(crater_ids[combined_mask])
     return all_detected_craters, all_crater_ids
 
+def get_position_estimates(RARR_file):
+    f = open(RARR_file,'r')
+    lines = f.readlines()
+    lines = [re.split(r',\s*', i.strip()) for i in lines]
+    pos_err = float(lines[0][0])
+    positions = np.array(lines[1:], dtype=np.float64)
+    return pos_err, positions
+
+
+
 def get_extrinsic_from_flight_file(flight_file, not_pangu, attitude_noise_deg):
     f = open(flight_file, 'r')
     lines = f.readlines()
@@ -1028,7 +1038,7 @@ def db_id_mask_from_sphere(CW_params, K, pos_est, att_est, pos_err, att_err):
     print("pos_est",pos_est)
     sphere_centre, sphere_radius, _ = bound_computation_sph_cylinder_inter_numba(cam_view_vec, K, att_est, pos_est, pos_err, att_err+max_img_ang, moon_radius)
 
-    print(sphere_centre, sphere_radius)
+    print("sphere",sphere_centre, sphere_radius)
     all_crater_coordinates = CW_params[:, 0:3]
 
     # Get all craters that lie in the intersection sphere.
@@ -1053,6 +1063,8 @@ if __name__ == "__main__":
     parser.add_argument("--catalogue_dir", required=True)
     parser.add_argument("--write_position_dir",required=True)
     parser.add_argument("--attitude_noise_deg", required=True)
+    parser.add_argument("--sim_RARR_pos", required=True)
+
 
     args = parser.parse_args()
     data_dir = args.data_dir
@@ -1063,6 +1075,7 @@ if __name__ == "__main__":
     catalogue_dir = args.catalogue_dir
     write_position_dir = args.write_position_dir
     attitude_noise_deg = args.attitude_noise_deg
+    sim_RARR_pos= args.sim_RARR_pos
     
     if args.silence_warnings:
         warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -1082,7 +1095,7 @@ if __name__ == "__main__":
     
     starting_id = indx = 0#1575
     ending_id = 2500
-    step = 500
+    step = 200
 
     num_cores=4 #TODO: change to 4
 
@@ -1098,6 +1111,7 @@ if __name__ == "__main__":
 
     # Get the camera extrinsic matrix and add noise.
     camera_extrinsic = get_extrinsic_from_flight_file(args.flight_file, args.not_pangu,attitude_noise_deg)
+    pos_err, position_estimates = get_position_estimates(sim_RARR_pos)
 
     crater_cam_filenames = get_files_in_dir(os.path.abspath(detections_dir),"txt")
     crater_cam_filenames.sort(key=lambda x: int(x[:-4]))
@@ -1126,15 +1140,15 @@ if __name__ == "__main__":
         start_time = time.time()  ###################### start time ####################################
 
         # Generate a crater catalogue on the fly.
-        pos_est, att_est = gt_pos, gt_att #TODO: change this to a real estimate
-        pos_err = 6700
-        att_err = 0.01
+        pos_est = position_estimates[i]
+        att_est = gt_att #TODO: change this to a real estimate
+        att_err = 0
         
 
         # Find the crater indicies of craters in the camera's fov
         print("Getting local crater catalogue.")
-        CW_visable_crater_mask = db_id_mask_from_sphere(CW_params_full, K, pos_est, att_est, pos_err, att_err*np.pi/180)
-        # CW_visable_crater_mask = db_id_mask_with_errors(CW_params_full, K, pos_est, att_est, pos_err, att_err, 10)
+        # CW_visable_crater_mask = db_id_mask_from_sphere(CW_params_full, K, pos_est, att_est, pos_err, att_err*np.pi/180)
+        CW_visable_crater_mask = db_id_mask_with_errors(CW_params_full, K, pos_est, att_est, pos_err, att_err, 5)
         print("Length of catalogue:",np.sum(CW_visable_crater_mask))
         # print("monte:",np.sum(CW_visable_crater_mask))
         CW_params, CW_conic, CW_conic_inv, CW_ENU, CW_Hmi_k, ID, CW_L_prime = CW_params_full[CW_visable_crater_mask], CW_conic_full[CW_visable_crater_mask], CW_conic_inv_full[CW_visable_crater_mask], CW_ENU_full[CW_visable_crater_mask], CW_Hmi_k_full[CW_visable_crater_mask], ID_full[CW_visable_crater_mask], CW_L_prime_full[CW_visable_crater_mask]
